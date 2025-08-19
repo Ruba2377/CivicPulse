@@ -1,17 +1,37 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+const ISSUE_TYPES = ["Pothole", "Garbage", "Streetlight", "Waterlogging", "Other"];
+const MOCK_AUTHORITIES = [
+  { id: "muni-1", name: "City Municipal Corp" },
+  { id: "roads-1", name: "Roads & Transport Dept" },
+  { id: "parks-1", name: "Parks Division" },
+];
+
 export default function CivicPulse() {
+  // Form state
+  const [issueType, setIssueType] = useState(ISSUE_TYPES[0]);
+  const [authority, setAuthority] = useState(MOCK_AUTHORITIES[0].id);
   const [address, setAddress] = useState("");
-  const [issueType, setIssueType] = useState("Pothole");
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [reports, setReports] = useState([]);
-  const [mapCenter, setMapCenter] = useState([20, 0]); // default center
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
-  // Handle photo upload + preview
+  // Reports list
+  const [reports, setReports] = useState([]);
+
+  // Comments state: object keyed by report id
+  const [commentTexts, setCommentTexts] = useState({});
+
+  // Map center (default to somewhere)
+  const [mapCenter, setMapCenter] = useState([20, 0]);
+
+  // Handle photo upload and preview
   function handlePhotoChange(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -19,7 +39,7 @@ export default function CivicPulse() {
     setPhotoPreview(URL.createObjectURL(file));
   }
 
-  // Use Nominatim to convert address to lat/lng
+  // Geocode address using OpenStreetMap Nominatim
   async function geocodeAddress(addr) {
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
       addr
@@ -31,13 +51,45 @@ export default function CivicPulse() {
         lat: parseFloat(data[0].lat),
         lng: parseFloat(data[0].lon),
       };
-    } else {
-      return null;
+    }
+    return null;
+  }
+
+  // Start voice recording
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setAudioBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setRecording(true);
+    } catch (error) {
+      alert("Microphone access is required to record audio.");
+      console.error(error);
     }
   }
 
-  // Add report handler
-  async function addReport(e) {
+  // Stop voice recording
+  function stopRecording() {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+    }
+  }
+
+  // Submit report handler
+  async function submitReport(e) {
     e.preventDefault();
 
     if (!address.trim()) {
@@ -52,11 +104,11 @@ export default function CivicPulse() {
 
     const coords = await geocodeAddress(address);
     if (!coords) {
-      alert("Address not found. Try a different address.");
+      alert("Address not found. Please enter a valid address.");
       return;
     }
 
-    // Create custom icon with uploaded image
+    // Create custom icon with the complaint photo
     const customIcon = L.icon({
       iconUrl: photoPreview,
       iconSize: [50, 50],
@@ -67,28 +119,55 @@ export default function CivicPulse() {
 
     const newReport = {
       id: Date.now(),
+      issueType,
+      authority,
+      address,
       lat: coords.lat,
       lng: coords.lng,
-      issueType,
       photoPreview,
+      audioUrl: audioBlob ? URL.createObjectURL(audioBlob) : null,
+      votes: 0,
+      comments: [],
       customIcon,
-      address,
     };
 
     setReports((prev) => [newReport, ...prev]);
     setMapCenter([coords.lat, coords.lng]);
+
     // Reset form
     setAddress("");
     setPhotoFile(null);
     setPhotoPreview(null);
+    setAudioBlob(null);
+    setCommentTexts((prev) => ({ ...prev, [newReport.id]: "" }));
+  }
+
+  // Upvote a report
+  function upvote(id) {
+    setReports((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, votes: r.votes + 1 } : r))
+    );
+  }
+
+  // Add comment to a report
+  function addComment(id) {
+    const text = commentTexts[id]?.trim();
+    if (!text) return;
+
+    setReports((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, comments: [...r.comments, text] } : r
+      )
+    );
+    setCommentTexts((prev) => ({ ...prev, [id]: "" }));
   }
 
   return (
     <div style={{ maxWidth: 900, margin: "20px auto", fontFamily: "Arial" }}>
-      <h1>CivicPulse: Pin Complaints by Address with Image Markers</h1>
+      <h1>CivicPulse</h1>
 
       <form
-        onSubmit={addReport}
+        onSubmit={submitReport}
         style={{
           marginBottom: 20,
           padding: 10,
@@ -104,11 +183,28 @@ export default function CivicPulse() {
             onChange={(e) => setIssueType(e.target.value)}
             style={{ marginLeft: 10 }}
           >
-            <option>Pothole</option>
-            <option>Garbage</option>
-            <option>Streetlight</option>
-            <option>Waterlogging</option>
-            <option>Other</option>
+            {ISSUE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </label>
+        <br />
+        <br />
+
+        <label>
+          Authority:
+          <select
+            value={authority}
+            onChange={(e) => setAuthority(e.target.value)}
+            style={{ marginLeft: 10 }}
+          >
+            {MOCK_AUTHORITIES.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
           </select>
         </label>
         <br />
@@ -129,7 +225,7 @@ export default function CivicPulse() {
         <br />
 
         <label>
-          Upload Photo:
+          Photo:
           <input
             type="file"
             accept="image/*"
@@ -149,11 +245,32 @@ export default function CivicPulse() {
         <br />
         <br />
 
+        <label>Voice Description:</label>
+        <button
+          type="button"
+          onClick={recording ? stopRecording : startRecording}
+          style={{ marginLeft: 10 }}
+        >
+          {recording ? "Stop Recording" : "Start Recording"}
+        </button>
+        {audioBlob && (
+          <div>
+            <audio
+              controls
+              src={URL.createObjectURL(audioBlob)}
+              style={{ marginTop: 10 }}
+            />
+          </div>
+        )}
+        <br />
+        <br />
+
         <button type="submit" style={{ padding: "8px 16px" }}>
-          Pin Complaint on Map
+          Submit Report
         </button>
       </form>
 
+      <h2>Public Map</h2>
       <MapContainer
         center={mapCenter}
         zoom={13}
@@ -165,23 +282,71 @@ export default function CivicPulse() {
           attribution="&copy; OpenStreetMap contributors"
         />
 
-        {reports.map(({ id, lat, lng, issueType, photoPreview, customIcon, address }) => (
-          <Marker key={id} position={[lat, lng]} icon={customIcon}>
-            <Popup>
-              <strong>{issueType}</strong>
-              <br />
-              {address}
-              <br />
-              <img
-                src={photoPreview}
-                alt="Complaint"
-                style={{ width: "100%", borderRadius: 8, marginTop: 5 }}
-              />
-            </Popup>
-          </Marker>
-        ))}
+        {reports.map(
+          ({
+            id,
+            lat,
+            lng,
+            issueType,
+            authority,
+            address,
+            photoPreview,
+            audioUrl,
+            votes,
+            comments,
+            customIcon,
+          }) => (
+            <Marker key={id} position={[lat, lng]} icon={customIcon}>
+              <Popup>
+                <strong>{issueType}</strong> <br />
+                <em>Authority: {MOCK_AUTHORITIES.find((a) => a.id === authority)?.name}</em>
+                <br />
+                <small>{address}</small>
+                <br />
+                <img
+                  src={photoPreview}
+                  alt="Complaint"
+                  style={{ width: "100%", marginTop: 10, borderRadius: 8 }}
+                />
+                <br />
+                {audioUrl && (
+                  <audio
+                    controls
+                    src={audioUrl}
+                    style={{ marginTop: 10, width: "100%" }}
+                  />
+                )}
+                <br />
+                Votes: {votes}{" "}
+                <button onClick={() => upvote(id)} style={{ marginLeft: 10 }}>
+                  Upvote
+                </button>
+                <div style={{ marginTop: 10 }}>
+                  <strong>Comments:</strong>
+                  {comments.length === 0 && <div>No comments yet.</div>}
+                  {comments.map((c, i) => (
+                    <div key={i} style={{ marginLeft: 10 }}>
+                      - {c}
+                    </div>
+                  ))}
+                  <input
+                    type="text"
+                    value={commentTexts[id] || ""}
+                    onChange={(e) =>
+                      setCommentTexts((prev) => ({ ...prev, [id]: e.target.value }))
+                    }
+                    placeholder="Add a comment"
+                    style={{ width: "90%", marginTop: 6 }}
+                  />
+                  <button onClick={() => addComment(id)} style={{ marginLeft: 6 }}>
+                    Add
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          )
+        )}
       </MapContainer>
     </div>
   );
 }
-
