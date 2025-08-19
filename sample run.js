@@ -1,20 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 export default function CivicPulse() {
-  // Form state
-  const [lat, setLat] = useState("");
-  const [lng, setLng] = useState("");
+  const [address, setAddress] = useState("");
   const [issueType, setIssueType] = useState("Pothole");
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-
-  // All reports stored here
   const [reports, setReports] = useState([]);
+  const [mapCenter, setMapCenter] = useState([20, 0]); // default center
 
-  // Handle image upload and preview
+  // Handle photo upload + preview
   function handlePhotoChange(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -22,66 +19,73 @@ export default function CivicPulse() {
     setPhotoPreview(URL.createObjectURL(file));
   }
 
-  // Add new report with custom icon from uploaded image
-  function addReport(e) {
+  // Use Nominatim to convert address to lat/lng
+  async function geocodeAddress(addr) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+      addr
+    )}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+      };
+    } else {
+      return null;
+    }
+  }
+
+  // Add report handler
+  async function addReport(e) {
     e.preventDefault();
 
-    // Validate lat/lng numbers
-    const latitude = parseFloat(lat);
-    const longitude = parseFloat(lng);
-    if (
-      isNaN(latitude) ||
-      isNaN(longitude) ||
-      latitude < -90 ||
-      latitude > 90 ||
-      longitude < -180 ||
-      longitude > 180
-    ) {
-      alert("Please enter valid latitude and longitude values.");
+    if (!address.trim()) {
+      alert("Please enter an address.");
       return;
     }
 
     if (!photoPreview) {
-      alert("Please upload an image for the complaint.");
+      alert("Please upload a photo.");
       return;
     }
 
-    // Create a custom Leaflet icon using the uploaded image
+    const coords = await geocodeAddress(address);
+    if (!coords) {
+      alert("Address not found. Try a different address.");
+      return;
+    }
+
+    // Create custom icon with uploaded image
     const customIcon = L.icon({
       iconUrl: photoPreview,
-      iconSize: [50, 50], // size of the icon
-      iconAnchor: [25, 50], // point of the icon which will correspond to marker's location
-      popupAnchor: [0, -50], // point from which the popup should open relative to the iconAnchor
+      iconSize: [50, 50],
+      iconAnchor: [25, 50],
+      popupAnchor: [0, -50],
       className: "custom-marker-icon",
     });
 
-    // New report object
     const newReport = {
       id: Date.now(),
-      lat: latitude,
-      lng: longitude,
+      lat: coords.lat,
+      lng: coords.lng,
       issueType,
       photoPreview,
       customIcon,
+      address,
     };
 
     setReports((prev) => [newReport, ...prev]);
-
+    setMapCenter([coords.lat, coords.lng]);
     // Reset form
-    setLat("");
-    setLng("");
+    setAddress("");
     setPhotoFile(null);
     setPhotoPreview(null);
   }
 
-  // Map center fallback
-  const centerPosition = reports.length
-    ? [reports[0].lat, reports[0].lng]
-    : [20, 0]; // somewhere neutral if no reports yet
-
   return (
     <div style={{ maxWidth: 900, margin: "20px auto", fontFamily: "Arial" }}>
-      <h1>CivicPulse: Pin Complaints with Image Markers</h1>
+      <h1>CivicPulse: Pin Complaints by Address with Image Markers</h1>
 
       <form
         onSubmit={addReport}
@@ -111,29 +115,13 @@ export default function CivicPulse() {
         <br />
 
         <label>
-          Latitude:
+          Address:
           <input
-            type="number"
-            step="any"
-            value={lat}
-            onChange={(e) => setLat(e.target.value)}
-            placeholder="e.g., 11.0168"
-            style={{ marginLeft: 10, width: 150 }}
-            required
-          />
-        </label>
-        <br />
-        <br />
-
-        <label>
-          Longitude:
-          <input
-            type="number"
-            step="any"
-            value={lng}
-            onChange={(e) => setLng(e.target.value)}
-            placeholder="e.g., 76.9558"
-            style={{ marginLeft: 10, width: 150 }}
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Enter complaint location address"
+            style={{ marginLeft: 10, width: 300 }}
             required
           />
         </label>
@@ -167,8 +155,8 @@ export default function CivicPulse() {
       </form>
 
       <MapContainer
-        center={centerPosition}
-        zoom={5}
+        center={mapCenter}
+        zoom={13}
         style={{ height: "500px", borderRadius: 10 }}
         scrollWheelZoom={true}
       >
@@ -177,10 +165,12 @@ export default function CivicPulse() {
           attribution="&copy; OpenStreetMap contributors"
         />
 
-        {reports.map(({ id, lat, lng, issueType, photoPreview, customIcon }) => (
+        {reports.map(({ id, lat, lng, issueType, photoPreview, customIcon, address }) => (
           <Marker key={id} position={[lat, lng]} icon={customIcon}>
             <Popup>
               <strong>{issueType}</strong>
+              <br />
+              {address}
               <br />
               <img
                 src={photoPreview}
@@ -194,3 +184,4 @@ export default function CivicPulse() {
     </div>
   );
 }
+
