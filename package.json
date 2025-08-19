@@ -1,31 +1,26 @@
 {
-  "name": "civicpulse",
-  "version": "1.0.0",
+  "name": "CivicPulse",
+  "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
   "dependencies": {
-    "leaflet": "^1.9.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-leaflet": "^4.2.1",
-    "react-scripts": "^5.0.1"
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-leaflet": "^4.0.0",
+    "leaflet": "^1.9.4"
   },
-  "description": "",
-  "main": "Initial check.js",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Ruba2377/CivicPulse.git"
+  "scripts": {
+    "start": "react-scripts start"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Ruba2377/CivicPulse/issues"
-  },
-  "homepage": "https://github.com/Ruba2377/CivicPulse#readme"
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
 }
