@@ -1,206 +1,168 @@
-import React, { useState, useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
+import React, { useState } from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+} from "react-leaflet";
 import L from "leaflet";
-import axios from "axios";
 import "leaflet/dist/leaflet.css";
 
+// Fix Leaflet default icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconRetinaUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-const ISSUE_TYPES = ["Pothole", "Garbage", "Streetlight", "Waterlogging", "Other"];
-const MOCK_AUTHORITIES = [
-  { id: "muni-1", name: "City Municipal Corp" },
-  { id: "roads-1", name: "Roads & Transport Dept" },
-  { id: "parks-1", name: "Parks Division" },
-];
+export default function PublicIssueReporter() {
+  const [location, setLocation] = useState("");
+  const [issue, setIssue] = useState("");
+  const [urgency, setUrgency] = useState("Low");
+  const [status, setStatus] = useState("New");
+  const [file, setFile] = useState(null);
+  const [reports, setReports] = useState([]); // store multiple complaints
 
-function LocationPicker({ onSelect }) {
-  useMapEvents({
-    click(e) {
-      onSelect(e.latlng);
-    },
-  });
-  return null;
-}
-
-export default function App() {
-  const [reports, setReports] = useState([]);
-  const [issueType, setIssueType] = useState(ISSUE_TYPES[0]);
-  const [authority, setAuthority] = useState(MOCK_AUTHORITIES[0].id);
-  const [location, setLocation] = useState({ lat: 11.0168, lng: 76.9558 });
-  const [locationName, setLocationName] = useState(""); 
-  const [photo, setPhoto] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
-
-  function handlePhoto(e) {
-    const file = e.target.files[0];
-    if (file) {
-      setPhoto(file);
-      setPhotoPreview(URL.createObjectURL(file));
-    }
-  }
-
-  async function setLocationFromName() {
-    if (!locationName) return;
-    try {
-      const response = await axios.get(
-        `https://nominatim.openstreetmap.org/search`,
-        {
-          params: { q: locationName, format: "json", limit: 1 },
-        }
-      );
-      if (response.data.length === 0) {
-        alert("Location not found!");
-        return;
-      }
-      const { lat, lon } = response.data[0];
-      setLocation({ lat: parseFloat(lat), lng: parseFloat(lon) });
-    } catch (error) {
-      console.error("Geocoding error:", error);
-      alert("Error fetching location coordinates.");
-    }
-  }
-
-  function submitReport(e) {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    if (!photoPreview) {
-      alert("Please upload a photo for the report.");
+
+    if (!location || !issue) {
+      alert("Please enter location and select issue.");
       return;
     }
+
+    // Convert "lat,lng" string → array
+    let coords = null;
+    if (location.includes(",")) {
+      coords = location.split(",").map((v) => parseFloat(v.trim()));
+    }
+
     const newReport = {
       id: Date.now(),
-      type: issueType,
-      authority,
-      lat: location.lat,
-      lng: location.lng,
-      photo: photoPreview,
-      locationName,
+      location,
+      coords,
+      issue,
+      urgency,
+      status,
+      file,
     };
-    setReports([newReport, ...reports]);
-    setPhoto(null);
-    setPhotoPreview(null);
-    setLocationName("");
-  }
+
+    setReports((prev) => [...prev, newReport]); // add new complaint
+    setLocation("");
+    setIssue("");
+    setUrgency("Low");
+    setStatus("New");
+    setFile(null);
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 font-sans">
-      {/* Header */}
-      <header className="bg-blue-600 text-white shadow-md py-6 mb-6">
-        <h1 className="text-4xl font-bold text-center">CivicPulse Dashboard</h1>
-        <p className="text-center text-blue-100 mt-2">Report civic issues in your city with ease</p>
-      </header>
+    <div className="flex h-screen">
+      {/* Left Form */}
+      <div className="w-1/3 bg-gray-100 p-4 overflow-y-auto">
+        <h2 className="text-xl font-bold mb-4">Report Public Issue</h2>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="text"
+            placeholder="Enter location (name or lat,lng)"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            className="w-full border p-2 rounded"
+          />
 
-      {/* Form */}
-      <form
-        onSubmit={submitReport}
-        className="bg-white max-w-xl mx-auto p-6 rounded-xl shadow-xl space-y-6"
-      >
-        <div>
-          <label className="block font-semibold mb-1 text-gray-700">Issue Type</label>
           <select
-            value={issueType}
-            onChange={(e) => setIssueType(e.target.value)}
-            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            value={issue}
+            onChange={(e) => setIssue(e.target.value)}
+            className="w-full border p-2 rounded"
           >
-            {ISSUE_TYPES.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
+            <option value="">Select Issue</option>
+            <option value="Garbage">Garbage</option>
+            <option value="Water Leakage">Water Leakage</option>
+            <option value="Road Damage">Road Damage</option>
+            <option value="Street Light">Street Light</option>
+            <option value="Public Safety">Public Safety</option>
+            <option value="Other">Other</option>
           </select>
-        </div>
 
-        <div>
-          <label className="block font-semibold mb-1 text-gray-700">Authority</label>
           <select
-            value={authority}
-            onChange={(e) => setAuthority(e.target.value)}
-            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            value={urgency}
+            onChange={(e) => setUrgency(e.target.value)}
+            className="w-full border p-2 rounded"
           >
-            {MOCK_AUTHORITIES.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
           </select>
-        </div>
 
-        <div>
-          <label className="block font-semibold mb-1 text-gray-700">Photo</label>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="w-full border p-2 rounded"
+          >
+            <option value="New">New</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Resolved">Resolved</option>
+          </select>
+
           <input
             type="file"
-            accept="image/*"
-            onChange={handlePhoto}
-            className="block w-full"
+            onChange={(e) => setFile(e.target.files[0])}
+            className="w-full"
           />
-          {photoPreview && (
-            <img
-              src={photoPreview}
-              alt="preview"
-              className="mt-2 rounded border shadow-md"
-              width="120"
-            />
+
+          <button
+            type="submit"
+            className="bg-green-600 text-white px-4 py-2 rounded w-full"
+          >
+            Submit Report
+          </button>
+        </form>
+
+        {/* Complaints List */}
+        <div className="mt-6">
+          <h3 className="font-bold mb-2">Submitted Complaints</h3>
+          {reports.length === 0 && (
+            <p className="text-sm text-gray-500">No complaints yet.</p>
           )}
+          <ul className="space-y-2">
+            {reports.map((r) => (
+              <li key={r.id} className="border p-2 rounded bg-white">
+                <p><strong>Issue:</strong> {r.issue}</p>
+                <p><strong>Urgency:</strong> {r.urgency}</p>
+                <p><strong>Status:</strong> {r.status}</p>
+                <p><strong>Location:</strong> {r.location}</p>
+              </li>
+            ))}
+          </ul>
         </div>
+      </div>
 
-        <div>
-          <label className="block font-semibold mb-1 text-gray-700">Location Name</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={locationName}
-              onChange={(e) => setLocationName(e.target.value)}
-              placeholder="Type location name or address"
-              className="flex-1 border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-            <button
-              type="button"
-              onClick={setLocationFromName}
-              className="bg-blue-500 text-white px-4 py-1 rounded hover:bg-blue-600 transition"
-            >
-              Set Location
-            </button>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600 font-semibold transition"
-        >
-          Submit Report
-        </button>
-      </form>
-
-      {/* Map */}
-      <div className="mt-8 max-w-6xl mx-auto rounded-xl overflow-hidden shadow-2xl">
+      {/* Right Map */}
+      <div className="w-2/3">
         <MapContainer
-          center={[location.lat, location.lng]}
-          zoom={13}
-          style={{ height: "500px", width: "100%" }}
+          center={[11.0168, 76.9558]} // Coimbatore default
+          zoom={12}
+          className="h-full w-full"
         >
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <LocationPicker onSelect={(latlng) => setLocation(latlng)} />
-          {reports.map((r) => (
-            <Marker key={r.id} position={[r.lat, r.lng]}>
-              <Popup>
-                <div className="space-y-2">
-                  <strong className="text-blue-600">{r.type}</strong>
-                  <div>Authority: {MOCK_AUTHORITIES.find((a) => a.id === r.authority)?.name}</div>
-                  <div>Location: {r.locationName}</div>
-                  {r.photo && (
-                    <img
-                      src={r.photo}
-                      alt="Report"
-                      width="120"
-                      className="mt-2 rounded border shadow-sm"
-                    />
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          ))}
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap contributors"
+          />
+
+          {reports.map((r) =>
+            r.coords ? (
+              <Marker key={r.id} position={r.coords}>
+                <Popup>
+                  <b>{r.issue}</b> <br />
+                  Urgency: {r.urgency} <br />
+                  Status: {r.status}
+                </Popup>
+              </Marker>
+            ) : null
+          )}
         </MapContainer>
       </div>
     </div>
