@@ -1,359 +1,191 @@
-import React, { useState, useRef } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Popup,
-} from "react-leaflet";
+import React, { useState, useEffect } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Fix leaflet marker icon issue
+// Fix Leaflet default icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
 const ISSUE_TYPES = ["Pothole", "Garbage", "Streetlight", "Waterlogging", "Other"];
-const AUTHORITIES = [
-  { id: "muni", name: "City Municipal Corp" },
-  { id: "roads", name: "Roads & Transport Dept" },
-  { id: "parks", name: "Parks Division" },
+const MOCK_AUTHORITIES = [
+  { id: "muni-1", name: "City Municipal Corp" },
+  { id: "roads-1", name: "Roads & Transport Dept" },
+  { id: "parks-1", name: "Parks Division" },
 ];
 
+function LocationPicker({ onSelect }) {
+  useMapEvents({
+    click(e) {
+      onSelect(e.latlng);
+    },
+  });
+  return null;
+}
+
 export default function App() {
+  const [reports, setReports] = useState([]);
   const [issueType, setIssueType] = useState(ISSUE_TYPES[0]);
-  const [authority, setAuthority] = useState(AUTHORITIES[0].id);
-  const [address, setAddress] = useState("");
+  const [authority, setAuthority] = useState(MOCK_AUTHORITIES[0].id);
+  const [location, setLocation] = useState({ lat: 11.0168, lng: 76.9558 });
+  const [locationInput, setLocationInput] = useState(""); 
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [audioBlob, setAudioBlob] = useState(null);
-  const [recording, setRecording] = useState(false);
-  const [reports, setReports] = useState([]);
-  const [commentTexts, setCommentTexts] = useState({});
-  const [mapCenter, setMapCenter] = useState([20, 77]); // India default
-  const [previewCoords, setPreviewCoords] = useState(null); // <-- NEW
 
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  // Initialize location input with default location
+  useEffect(() => {
+    setLocationInput(`${location.lat},${location.lng}`);
+  }, [location]);
 
-  // Handle photo upload
-  const handlePhoto = (e) => {
+  function handlePhoto(e) {
     const file = e.target.files[0];
     if (file) {
       setPhoto(file);
       setPhotoPreview(URL.createObjectURL(file));
     }
-  };
+  }
 
-  // Handle voice recording
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
+  function handleLocationChange(e) {
+    setLocationInput(e.target.value);
+  }
 
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        setAudioBlob(blob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorderRef.current.start();
-      setRecording(true);
-    } catch (err) {
-      alert("Microphone access is required for recording.");
+  function setLocationFromInput() {
+    const [lat, lng] = locationInput.split(",").map(Number);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      setLocation({ lat, lng });
+    } else {
+      alert("Enter valid coordinates: lat,lng");
     }
-  };
+  }
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      setRecording(false);
-    }
-  };
-
-  // Geocode address
-  const geocodeAddress = async (addr) => {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`
-    );
-    const data = await response.json();
-    if (data && data[0]) {
-      return {
-        lat: parseFloat(data[0].lat),
-        lng: parseFloat(data[0].lon),
-      };
-    }
-    return null;
-  };
-
-  // Live preview on blur
-  const handleAddressBlur = async () => {
-    if (address.trim()) {
-      const coords = await geocodeAddress(address);
-      if (coords) {
-        setPreviewCoords(coords);
-        setMapCenter([coords.lat, coords.lng]);
-      }
-    }
-  };
-
-  // Submit report
-  const handleSubmit = async (e) => {
+  function submitReport(e) {
     e.preventDefault();
-
-    if (!address) return alert("Please enter an address.");
-    if (!photoPreview) return alert("Please upload a photo.");
-
-    const coords = await geocodeAddress(address);
-    if (!coords) return alert("Could not find location. Try a more specific address.");
-
-    const icon = L.icon({
-      iconUrl: photoPreview,
-      iconSize: [50, 50],
-      iconAnchor: [25, 50],
-      popupAnchor: [0, -50],
-    });
+    if (!photoPreview) {
+      alert("Please upload a photo for the report.");
+      return;
+    }
 
     const newReport = {
       id: Date.now(),
       type: issueType,
       authority,
-      address,
-      lat: coords.lat,
-      lng: coords.lng,
+      lat: location.lat,
+      lng: location.lng,
       photo: photoPreview,
-      audio: audioBlob ? URL.createObjectURL(audioBlob) : null,
-      votes: 0,
-      comments: [],
-      icon,
     };
 
     setReports([newReport, ...reports]);
-    setMapCenter([coords.lat, coords.lng]);
-    setPreviewCoords(null); // clear preview after submission
-
-    // Reset
-    setAddress("");
     setPhoto(null);
     setPhotoPreview(null);
-    setAudioBlob(null);
-  };
-
-  // Upvote logic
-  const upvote = (id) => {
-    setReports((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, votes: r.votes + 1 } : r))
-    );
-  };
-
-  // Add comment
-  const addComment = (id) => {
-    const text = commentTexts[id]?.trim();
-    if (!text) return;
-
-    setReports((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, comments: [...r.comments, text] } : r
-      )
-    );
-    setCommentTexts((prev) => ({ ...prev, [id]: "" }));
-  };
+  }
 
   return (
-    <div style={{ maxWidth: 900, margin: "auto", fontFamily: "Arial" }}>
-      <h1>CivicPulse</h1>
+    <div className="min-h-screen bg-gray-100 p-6 font-sans">
+      <h1 className="text-4xl font-bold text-center text-gray-800 mb-6">CivicPulse</h1>
 
       <form
-        onSubmit={handleSubmit}
-        style={{
-          background: "#f8f8f8",
-          padding: 20,
-          borderRadius: 10,
-        }}
+        onSubmit={submitReport}
+        className="bg-white max-w-xl mx-auto p-6 rounded-lg shadow-lg space-y-4"
       >
-        <label>
-          Issue Type:
+        <div>
+          <label className="block font-semibold mb-1">Issue Type:</label>
           <select
             value={issueType}
             onChange={(e) => setIssueType(e.target.value)}
-            style={{ marginLeft: 10 }}
+            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
-            {ISSUE_TYPES.map((type) => (
-              <option key={type}>{type}</option>
+            {ISSUE_TYPES.map((t) => (
+              <option key={t}>{t}</option>
             ))}
           </select>
-        </label>
-        <br />
-        <br />
+        </div>
 
-        <label>
-          Authority:
+        <div>
+          <label className="block font-semibold mb-1">Authority:</label>
           <select
             value={authority}
             onChange={(e) => setAuthority(e.target.value)}
-            style={{ marginLeft: 10 }}
+            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
-            {AUTHORITIES.map((a) => (
+            {MOCK_AUTHORITIES.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>
             ))}
           </select>
-        </label>
-        <br />
-        <br />
+        </div>
 
-        {/* NEW Location field */}
-        <label>
-          Location:
-          <input
-            type="text"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            onBlur={handleAddressBlur}
-            placeholder="Enter location e.g. Saravanampatti Keeranatham Road"
-            style={{ marginLeft: 10, width: 300 }}
-            required
-          />
-        </label>
-        <br />
-        <br />
-
-        <label>
-          Photo:
+        <div>
+          <label className="block font-semibold mb-1">Photo:</label>
           <input
             type="file"
             accept="image/*"
             onChange={handlePhoto}
-            style={{ marginLeft: 10 }}
-            required
+            className="block w-full"
           />
-        </label>
-        <br />
-        {photoPreview && (
-          <img
-            src={photoPreview}
-            alt="preview"
-            width={100}
-            style={{ marginTop: 10 }}
-          />
-        )}
-        <br />
-        <br />
+          {photoPreview && (
+            <img
+              src={photoPreview}
+              alt="preview"
+              className="mt-2 rounded border shadow-sm"
+              width="120"
+            />
+          )}
+        </div>
 
-        <label>Voice Description:</label>
+        <div>
+          <label className="block font-semibold mb-1">Enter Location (lat,lng):</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={locationInput}
+              onChange={handleLocationChange}
+              placeholder="11.0168,76.9558"
+              className="flex-1 border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button
+              type="button"
+              onClick={setLocationFromInput}
+              className="bg-blue-500 text-white px-4 py-1 rounded hover:bg-blue-600"
+            >
+              Set Location
+            </button>
+          </div>
+        </div>
+
         <button
-          type="button"
-          onClick={recording ? stopRecording : startRecording}
-          style={{ marginLeft: 10 }}
+          type="submit"
+          className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600 font-semibold"
         >
-          {recording ? "Stop Recording" : "Start Recording"}
+          Submit Report
         </button>
-        {audioBlob && (
-          <audio
-            controls
-            src={URL.createObjectURL(audioBlob)}
-            style={{ display: "block", marginTop: 10 }}
-          />
-        )}
-
-        <br />
-        <br />
-        <button type="submit">Submit Report</button>
       </form>
 
-      <h2 style={{ marginTop: 30 }}>Public Map</h2>
-      <MapContainer
-        center={mapCenter}
-        zoom={13}
-        style={{ height: 500, borderRadius: 10 }}
-      >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="&copy; OpenStreetMap contributors"
-        />
-
-        {/* Preview marker (before submit) */}
-        {previewCoords && (
-          <Marker position={[previewCoords.lat, previewCoords.lng]}>
-            <Popup>📍 Location Preview</Popup>
-          </Marker>
-        )}
-
-        {reports.map((report) => (
-          <Marker
-            key={report.id}
-            position={[report.lat, report.lng]}
-            icon={report.icon}
-          >
-            <Popup>
-              <strong>{report.type}</strong> <br />
-              <em>
-                {AUTHORITIES.find((a) => a.id === report.authority)?.name}
-              </em>
-              <br />
-              <small>{report.address}</small>
-              <br />
-              <img
-                src={report.photo}
-                alt="issue"
-                width="100%"
-                style={{ marginTop: 5 }}
-              />
-              {report.audio && (
-                <audio
-                  controls
-                  src={report.audio}
-                  style={{ width: "100%", marginTop: 5 }}
-                />
-              )}
-              <div style={{ marginTop: 10 }}>
-                Votes: {report.votes}
-                <button
-                  onClick={() => upvote(report.id)}
-                  style={{ marginLeft: 10 }}
-                >
-                  Upvote
-                </button>
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <strong>Comments:</strong>
-                {report.comments.length === 0 && <div>No comments yet.</div>}
-                {report.comments.map((c, i) => (
-                  <div key={i}>- {c}</div>
-                ))}
-                <input
-                  type="text"
-                  value={commentTexts[report.id] || ""}
-                  onChange={(e) =>
-                    setCommentTexts((prev) => ({
-                      ...prev,
-                      [report.id]: e.target.value,
-                    }))
-                  }
-                  placeholder="Add a comment"
-                  style={{ width: "90%", marginTop: 6 }}
-                />
-                <button
-                  onClick={() => addComment(report.id)}
-                  style={{ marginLeft: 6 }}
-                >
-                  Add
-                </button>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+      <div className="mt-6 max-w-4xl mx-auto relative">
+        <MapContainer
+          center={[location.lat, location.lng]}
+          zoom={13}
+          style={{ height: "500px", borderRadius: "10px" }}
+        >
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <LocationPicker onSelect={(latlng) => setLocation(latlng)} />
+          {reports.map((r) => (
+            <Marker key={r.id} position={[r.lat, r.lng]}>
+              <Popup>
+                <strong>{r.type}</strong>
+                <br />
+                Authority: {MOCK_AUTHORITIES.find((a) => a.id === r.authority)?.name}
+                <br />
+                {r.photo && <img src={r.photo} alt="Report" width="100" className="mt-2 rounded border" />}
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
     </div>
   );
 }

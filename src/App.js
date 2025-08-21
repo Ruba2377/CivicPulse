@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import axios from "axios";
 import "leaflet/dist/leaflet.css";
 
-// Fix Leaflet default icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -32,27 +32,9 @@ export default function App() {
   const [issueType, setIssueType] = useState(ISSUE_TYPES[0]);
   const [authority, setAuthority] = useState(MOCK_AUTHORITIES[0].id);
   const [location, setLocation] = useState({ lat: 11.0168, lng: 76.9558 });
+  const [locationName, setLocationName] = useState(""); 
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [audioBlob, setAudioBlob] = useState(null);
-  const [recording, setRecording] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const [commentTexts, setCommentTexts] = useState({}); // One comment field per report
-
-  // Geolocation with error handling
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        },
-        (err) => {
-          console.warn("Geolocation error:", err.message);
-        }
-      );
-    }
-  }, []);
 
   function handlePhoto(e) {
     const file = e.target.files[0];
@@ -62,39 +44,33 @@ export default function App() {
     }
   }
 
-  async function startRecording() {
+  async function setLocationFromName() {
+    if (!locationName) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        setAudioBlob(blob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorderRef.current.start();
-      setRecording(true);
+      const response = await axios.get(
+        `https://nominatim.openstreetmap.org/search`,
+        {
+          params: { q: locationName, format: "json", limit: 1 },
+        }
+      );
+      if (response.data.length === 0) {
+        alert("Location not found!");
+        return;
+      }
+      const { lat, lon } = response.data[0];
+      setLocation({ lat: parseFloat(lat), lng: parseFloat(lon) });
     } catch (error) {
-      console.error("Microphone permission denied or not available:", error);
-      alert("Microphone access is required to record audio.");
-    }
-  }
-
-  function stopRecording() {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      setRecording(false);
+      console.error("Geocoding error:", error);
+      alert("Error fetching location coordinates.");
     }
   }
 
   function submitReport(e) {
     e.preventDefault();
+    if (!photoPreview) {
+      alert("Please upload a photo for the report.");
+      return;
+    }
     const newReport = {
       id: Date.now(),
       type: issueType,
@@ -102,120 +78,131 @@ export default function App() {
       lat: location.lat,
       lng: location.lng,
       photo: photoPreview,
-      audio: audioBlob ? URL.createObjectURL(audioBlob) : null,
-      votes: 0,
-      comments: [],
+      locationName,
     };
-
     setReports([newReport, ...reports]);
     setPhoto(null);
     setPhotoPreview(null);
-    setAudioBlob(null);
-    setCommentTexts((prev) => ({ ...prev, [newReport.id]: "" }));
-  }
-
-  function upvote(id) {
-    setReports((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, votes: r.votes + 1 } : r))
-    );
-  }
-
-  function addComment(id) {
-    const text = commentTexts[id]?.trim();
-    if (!text) return;
-
-    setReports((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, comments: [...r.comments, text] } : r
-      )
-    );
-    setCommentTexts((prev) => ({ ...prev, [id]: "" }));
+    setLocationName("");
   }
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial" }}>
-      <h1>CivicPulse</h1>
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 font-sans">
+      {/* Header */}
+      <header className="bg-blue-600 text-white shadow-md py-6 mb-6">
+        <h1 className="text-4xl font-bold text-center">CivicPulse Dashboard</h1>
+        <p className="text-center text-blue-100 mt-2">Report civic issues in your city with ease</p>
+      </header>
 
-      <form onSubmit={submitReport}>
-        <label>Issue Type:</label>
-        <select value={issueType} onChange={(e) => setIssueType(e.target.value)}>
-          {ISSUE_TYPES.map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </select>
+      {/* Form */}
+      <form
+        onSubmit={submitReport}
+        className="bg-white max-w-xl mx-auto p-6 rounded-xl shadow-xl space-y-6"
+      >
+        <div>
+          <label className="block font-semibold mb-1 text-gray-700">Issue Type</label>
+          <select
+            value={issueType}
+            onChange={(e) => setIssueType(e.target.value)}
+            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            {ISSUE_TYPES.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </div>
 
-        <br /><br />
+        <div>
+          <label className="block font-semibold mb-1 text-gray-700">Authority</label>
+          <select
+            value={authority}
+            onChange={(e) => setAuthority(e.target.value)}
+            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            {MOCK_AUTHORITIES.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label>Authority:</label>
-        <select value={authority} onChange={(e) => setAuthority(e.target.value)}>
-          {MOCK_AUTHORITIES.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+        <div>
+          <label className="block font-semibold mb-1 text-gray-700">Photo</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handlePhoto}
+            className="block w-full"
+          />
+          {photoPreview && (
+            <img
+              src={photoPreview}
+              alt="preview"
+              className="mt-2 rounded border shadow-md"
+              width="120"
+            />
+          )}
+        </div>
 
-        <br /><br />
-
-        <label>Photo:</label>
-        <input type="file" accept="image/*" onChange={handlePhoto} />
-        {photoPreview && <img src={photoPreview} alt="preview" width="100" style={{ display: "block", marginTop: "10px" }} />}
-
-        <br /><br />
-
-        <label>Voice Description:</label>
-        <button type="button" onClick={recording ? stopRecording : startRecording}>
-          {recording ? "Stop Recording" : "Start Recording"}
-        </button>
-        {audioBlob && (
-          <div>
-            <audio controls src={URL.createObjectURL(audioBlob)} style={{ marginTop: "10px" }} />
+        <div>
+          <label className="block font-semibold mb-1 text-gray-700">Location Name</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={locationName}
+              onChange={(e) => setLocationName(e.target.value)}
+              placeholder="Type location name or address"
+              className="flex-1 border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button
+              type="button"
+              onClick={setLocationFromName}
+              className="bg-blue-500 text-white px-4 py-1 rounded hover:bg-blue-600 transition"
+            >
+              Set Location
+            </button>
           </div>
-        )}
+        </div>
 
-        <br /><br />
-
-        <button type="submit">Submit Report</button>
+        <button
+          type="submit"
+          className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600 font-semibold transition"
+        >
+          Submit Report
+        </button>
       </form>
 
-      <h2>Public Map</h2>
-      <MapContainer center={[location.lat, location.lng]} zoom={13} style={{ height: "400px" }}>
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          errorTileUrl="https://upload.wikimedia.org/wikipedia/commons/d/d1/Image_not_available.png"
-        />
-        <LocationPicker onSelect={(latlng) => setLocation(latlng)} />
-        {reports.map((r) => (
-          <Marker key={r.id} position={[r.lat, r.lng]}>
-            <Popup>
-              <strong>{r.type}</strong><br />
-              Votes: {r.votes}<br />
-              {r.photo && <img src={r.photo} alt="Report" width="100" />}
-              {r.audio && (
-                <div>
-                  <audio controls src={r.audio} />
+      {/* Map */}
+      <div className="mt-8 max-w-6xl mx-auto rounded-xl overflow-hidden shadow-2xl">
+        <MapContainer
+          center={[location.lat, location.lng]}
+          zoom={13}
+          style={{ height: "500px", width: "100%" }}
+        >
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <LocationPicker onSelect={(latlng) => setLocation(latlng)} />
+          {reports.map((r) => (
+            <Marker key={r.id} position={[r.lat, r.lng]}>
+              <Popup>
+                <div className="space-y-2">
+                  <strong className="text-blue-600">{r.type}</strong>
+                  <div>Authority: {MOCK_AUTHORITIES.find((a) => a.id === r.authority)?.name}</div>
+                  <div>Location: {r.locationName}</div>
+                  {r.photo && (
+                    <img
+                      src={r.photo}
+                      alt="Report"
+                      width="120"
+                      className="mt-2 rounded border shadow-sm"
+                    />
+                  )}
                 </div>
-              )}
-              <br />
-              <button onClick={() => upvote(r.id)}>Upvote</button>
-              <div style={{ marginTop: "10px" }}>
-                <strong>Comments:</strong>
-                {r.comments.map((c, i) => (
-                  <div key={i}>- {c}</div>
-                ))}
-                <input
-                  value={commentTexts[r.id] || ""}
-                  onChange={(e) =>
-                    setCommentTexts((prev) => ({ ...prev, [r.id]: e.target.value }))
-                  }
-                  placeholder="Add a comment"
-                />
-                <button onClick={() => addComment(r.id)}>Add</button>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
     </div>
   );
 }
