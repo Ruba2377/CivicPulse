@@ -3,9 +3,14 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { auth } = require('../middleware/authMiddleware');
-const Complaint = require('../models/Complaints.js');
+const Complaint = require('../models/Complaint.js');
+
 
 const router = express.Router();
+// ✅ Add this test route
+router.get('/test', (req, res) => {
+  res.json({ route: 'complaints', status: 'ok' });
+});
 
 // Multer setup: store in uploads/
 const storage = multer.diskStorage({
