@@ -1,250 +1,305 @@
+// src/App.js
 import React, { useState, useRef } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import L from "leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMapEvents,
+} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import axios from "axios";
+import L from "leaflet";
 
-// Red & Blue Pin Icons
-const redIcon = new L.Icon({
-  iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32],
-});
+// Complaint marker icons based on status
+const markerIcons = {
+  New: new L.Icon({
+    iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+    iconSize: [32, 32],
+  }),
+  "In Progress": new L.Icon({
+    iconUrl: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+    iconSize: [32, 32],
+  }),
+  Resolved: new L.Icon({
+    iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+    iconSize: [32, 32],
+  }),
+};
 
-const blueIcon = new L.Icon({
-  iconUrl: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32],
-});
+// For selecting coordinates by clicking on the map
+function LocationSelector({ onSelect }) {
+  useMapEvents({
+    click(e) {
+      onSelect(e.latlng);
+    },
+  });
+  return null;
+}
 
-export default function CivicPulseApp() {
+function App() {
   const [complaints, setComplaints] = useState([]);
-  const [locationText, setLocationText] = useState("");
-  const [mapCenter, setMapCenter] = useState([11.0168, 76.9558]);
-  const [dept, setDept] = useState("");
-  const [desc, setDesc] = useState("");
-  const [photo, setPhoto] = useState(null);
-  const [audioUrl, setAudioUrl] = useState(null);
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    urgency: "Low",
+    location: "",
+    coords: null,
+    images: [],
+    audio: null,
+  });
 
+  // For audio recording
+  const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // Convert place name → coordinates
-  const geocodeLocation = async (place) => {
-    try {
-      const res = await axios.get(`https://nominatim.openstreetmap.org/search`, {
-        params: { q: place, format: "json", limit: 1 },
-      });
-
-      if (res.data.length > 0) {
-        return {
-          lat: parseFloat(res.data[0].lat),
-          lon: parseFloat(res.data[0].lon),
-          display_name: res.data[0].display_name,
-        };
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    return null;
-  };
-
-  // Add complaint (typed address = red pin)
-  const handleAddComplaint = async () => {
-    if (!locationText || !dept) {
-      alert("Enter location and select department!");
-      return;
-    }
-
-    const geoData = await geocodeLocation(locationText);
-    if (!geoData) {
-      alert("Location not found. Try another name.");
-      return;
-    }
+  // Submit complaint
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!form.coords) return alert("Please select or enter a location");
 
     const newComplaint = {
-      location: geoData.display_name,
-      coords: [geoData.lat, geoData.lon],
-      dept,
-      desc,
-      photo,
-      audio: audioUrl,
-      isGPS: false, // typed address
+      ...form,
+      id: Date.now(),
+      status: "New", // authority will update later
     };
 
     setComplaints([...complaints, newComplaint]);
-    setMapCenter([geoData.lat, geoData.lon]);
-
-    // Reset
-    setLocationText("");
-    setDept("");
-    setDesc("");
-    setPhoto(null);
-    setAudioUrl(null);
-  };
-
-  // GPS (blue pin)
-  const handleUseGPS = () => {
-    if (!navigator.geolocation) {
-      alert("Geolocation not supported");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude, longitude } = pos.coords;
-      try {
-        const res = await axios.get(
-          `https://nominatim.openstreetmap.org/reverse`,
-          {
-            params: { lat: latitude, lon: longitude, format: "json" },
-          }
-        );
-        const placeName = res.data.display_name || "My Location";
-        setLocationText(placeName); // auto-fill field
-        const newComplaint = {
-          location: placeName,
-          coords: [latitude, longitude],
-          dept,
-          desc,
-          photo,
-          audio: audioUrl,
-          isGPS: true, // GPS pin
-        };
-        setComplaints([...complaints, newComplaint]);
-        setMapCenter([latitude, longitude]);
-      } catch (err) {
-        console.error(err);
-      }
+    setForm({
+      title: "",
+      description: "",
+      urgency: "Low",
+      location: "",
+      coords: null,
+      images: [],
+      audio: null,
     });
   };
 
-  // Audio Recording
+  // Get GPS location
+  const handleGetCurrentLocation = () => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        setForm({ ...form, location: "Current Location", coords });
+      },
+      () => alert("Unable to fetch current location")
+    );
+  };
+
+  // Manual location search using OpenStreetMap API
+  const handleManualLocation = async () => {
+    if (!form.location) return alert("Enter a location");
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${form.location}`
+      );
+      const data = await res.json();
+      if (data.length > 0) {
+        const coords = {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+        };
+        setForm({ ...form, coords });
+      } else {
+        alert("Location not found!");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error finding location");
+    }
+  };
+
+  // Voice Recording
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        audioChunksRef.current.push(e.data);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
-      mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/mp3" });
-        const url = URL.createObjectURL(audioBlob);
-        setAudioUrl(url);
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+        const audioURL = URL.createObjectURL(audioBlob);
+        setForm({ ...form, audio: audioURL });
       };
 
-      mediaRecorderRef.current.start();
+      mediaRecorder.start();
+      setRecording(true);
     } catch (err) {
-      console.error("Error recording audio", err);
+      alert("Microphone access denied or not available");
+      console.error(err);
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
+      setRecording(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 p-6">
-      <h1 className="text-4xl font-extrabold text-center mb-6 text-blue-900 drop-shadow-md">
-        CivicPulse – Report Public Issues
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black text-white p-4">
+      <h1 className="text-4xl font-bold text-center mb-6">
+        🚨 Smart Complaint Portal
       </h1>
 
       {/* Complaint Form */}
-      <div className="bg-gradient-to-r from-white via-blue-50 to-purple-50 p-6 rounded-2xl shadow-xl max-w-3xl mx-auto border border-blue-200">
-        <h2 className="text-2xl font-bold mb-4 text-gray-800">📝 New Complaint</h2>
-
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white/10 backdrop-blur-md p-6 rounded-2xl shadow-lg max-w-2xl mx-auto"
+      >
         <input
           type="text"
-          value={locationText}
-          onChange={(e) => setLocationText(e.target.value)}
-          placeholder="Enter location / address"
-          className="w-full p-3 mb-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-400"
+          placeholder="Complaint Title"
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+          className="w-full p-2 mb-3 rounded bg-white/20 text-white placeholder-gray-300"
+          required
+        />
+
+        <textarea
+          placeholder="Describe your complaint"
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          className="w-full p-2 mb-3 rounded bg-white/20 text-white placeholder-gray-300"
+          required
         />
 
         <select
-          value={dept}
-          onChange={(e) => setDept(e.target.value)}
-          className="w-full p-3 mb-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-green-400"
+          value={form.urgency}
+          onChange={(e) => setForm({ ...form, urgency: e.target.value })}
+          className="w-full p-2 mb-3 rounded bg-white/20 text-white"
         >
-          <option value="">Select Department</option>
-          <option value="Water Supply">💧 Water Supply</option>
-          <option value="Electricity">⚡ Electricity</option>
-          <option value="Sanitation">🧹 Sanitation</option>
-          <option value="Roads">🛣 Roads</option>
-          <option value="Waste Management">🚮 Waste Management</option>
+          <option value="Low">Low Urgency</option>
+          <option value="Medium">Medium Urgency</option>
+          <option value="High">High Urgency</option>
         </select>
 
-        <textarea
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-          placeholder="Complaint description"
-          className="w-full p-3 mb-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-400"
-        />
+        {/* Location Input */}
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            placeholder="Enter location manually"
+            value={form.location}
+            onChange={(e) => setForm({ ...form, location: e.target.value })}
+            className="flex-1 p-2 rounded bg-white/20 text-white placeholder-gray-300"
+          />
+          <button
+            type="button"
+            onClick={handleManualLocation}
+            className="px-3 py-2 bg-green-600 rounded-lg"
+          >
+            Search
+          </button>
+          <button
+            type="button"
+            onClick={handleGetCurrentLocation}
+            className="px-3 py-2 bg-blue-600 rounded-lg"
+          >
+            Use GPS
+          </button>
+        </div>
 
+        {/* Image Upload */}
         <input
           type="file"
           accept="image/*"
-          onChange={(e) => setPhoto(URL.createObjectURL(e.target.files[0]))}
-          className="w-full mb-3"
+          multiple
+          onChange={(e) =>
+            setForm({ ...form, images: Array.from(e.target.files) })
+          }
+          className="w-full p-2 mb-3 bg-white/20 rounded"
         />
 
         {/* Audio Recording */}
-        <div className="flex items-center gap-3 mb-3">
-          <button
-            onClick={startRecording}
-            className="px-4 py-2 bg-red-500 text-white rounded-lg shadow-md hover:bg-red-600"
-          >
-            🎙 Start Recording
-          </button>
-          <button
-            onClick={stopRecording}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg shadow-md hover:bg-gray-800"
-          >
-            ⏹ Stop
-          </button>
-          {audioUrl && <audio controls src={audioUrl}></audio>}
-        </div>
-
-        <div className="flex gap-4">
-          <button
-            onClick={handleAddComplaint}
-            className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-700"
-          >
-            Add Complaint
-          </button>
-          <button
-            onClick={handleUseGPS}
-            className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg shadow-lg hover:bg-green-700"
-          >
-            📍 Use GPS
-          </button>
-        </div>
-      </div>
-
-      {/* Map */}
-      <div className="mt-6 h-[600px] rounded-xl overflow-hidden shadow-2xl border border-gray-300">
-        <MapContainer center={mapCenter} zoom={13} className="h-full w-full">
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          {complaints.map((c, i) => (
-            <Marker
-              key={i}
-              position={c.coords}
-              icon={c.isGPS ? blueIcon : redIcon}
+        <div className="mb-3">
+          {!recording ? (
+            <button
+              type="button"
+              onClick={startRecording}
+              className="px-3 py-2 bg-red-600 rounded-lg mr-2"
             >
+              🎙 Start Recording
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={stopRecording}
+              className="px-3 py-2 bg-yellow-600 rounded-lg"
+            >
+              ⏹ Stop Recording
+            </button>
+          )}
+          {form.audio && (
+            <audio controls className="mt-2 w-full">
+              <source src={form.audio} type="audio/webm" />
+            </audio>
+          )}
+        </div>
+
+        <button
+          type="submit"
+          className="w-full bg-purple-600 hover:bg-purple-700 p-3 rounded-xl font-bold"
+        >
+          Submit Complaint
+        </button>
+      </form>
+
+      {/* Map Section */}
+      <div className="mt-6 h-[70vh] rounded-2xl overflow-hidden shadow-lg">
+        <MapContainer
+          center={[20.5937, 78.9629]}
+          zoom={5}
+          className="h-full w-full"
+        >
+          <TileLayer
+            attribution='&copy; OpenStreetMap contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <LocationSelector
+            onSelect={(coords) =>
+              setForm({ ...form, coords, location: "Pinned Location" })
+            }
+          />
+
+          {complaints.map((c) => (
+            <Marker key={c.id} position={c.coords} icon={markerIcons[c.status]}>
               <Popup>
-                <strong>{c.dept}</strong> <br />
-                {c.location} <br />
-                {c.desc} <br />
-                {c.photo && (
-                  <img src={c.photo} alt="complaint" className="w-32 mt-2" />
+                <h3 className="font-bold">{c.title}</h3>
+                <p>{c.description}</p>
+                <p>
+                  <strong>Urgency:</strong> {c.urgency}
+                </p>
+                <p>
+                  <strong>Status:</strong> {c.status}
+                </p>
+                {c.images.length > 0 && (
+                  <div>
+                    {c.images.map((img, i) => (
+                      <img
+                        key={i}
+                        src={URL.createObjectURL(img)}
+                        alt="complaint"
+                        className="w-32 mt-2"
+                      />
+                    ))}
+                  </div>
                 )}
                 {c.audio && (
-                  <audio controls src={c.audio} className="mt-2"></audio>
+                  <audio controls className="mt-2 w-full">
+                    <source src={c.audio} type="audio/webm" />
+                  </audio>
                 )}
               </Popup>
             </Marker>
@@ -254,4 +309,20 @@ export default function CivicPulseApp() {
     </div>
   );
 }
+
+export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
