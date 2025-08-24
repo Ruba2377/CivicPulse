@@ -80,7 +80,7 @@ function LocationSelector({ onSelect }) {
   return null;
 }
 
-// 3D Background Component with glowing particles and shapes
+// 3D Background Component with a simplified, elegant cityscape
 const Background3D = () => {
   const mountRef = useRef(null);
   
@@ -98,65 +98,64 @@ const Background3D = () => {
     renderer.setPixelRatio(window.devicePixelRatio);
     currentMount.appendChild(renderer.domElement);
 
-    // Create a particle system
-    const numParticles = 2000;
-    const positions = new Float32Array(numParticles * 3);
-    const colors = new Float32Array(numParticles * 3);
-    const particleColors = [0x9966cc, 0x8A2BE2, 0x4B0082, 0x7a43b6, 0xad82d9, 0xb687e0];
-
-    for (let i = 0; i < numParticles; i++) {
-      const i3 = i * 3;
-      positions[i3] = (Math.random() - 0.5) * 50;
-      positions[i3 + 1] = (Math.random() - 0.5) * 50;
-      positions[i3 + 2] = (Math.random() - 0.5) * 50;
-      
-      const color = new THREE.Color(particleColors[Math.floor(Math.random() * particleColors.length)]);
-      colors[i3] = color.r;
-      colors[i3 + 1] = color.g;
-      colors[i3 + 2] = color.b;
-    }
-
-    const particleGeometry = new THREE.BufferGeometry();
-    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    
-    const particleMaterial = new THREE.PointsMaterial({
-      size: 0.1,
-      vertexColors: true,
-      blending: THREE.AdditiveBlending,
-      transparent: true,
-      opacity: 0.8
+    // Create the simplified cityscape
+    const buildings = [];
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x221155, // Dark purple color for buildings
     });
-    const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
-    scene.add(particleSystem);
-    
-    // Create larger glowing shapes
-    const shapes = [];
-    const mainGeometry = new THREE.IcosahedronGeometry(2, 0);
-    const mainMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.5,
+    const glowMaterial = new THREE.MeshBasicMaterial({ 
+      color: 0x8A2BE2, // Blue-violet glow
       blending: THREE.AdditiveBlending
     });
-    const mainShape = new THREE.Mesh(mainGeometry, mainMaterial);
-    mainShape.position.set(0, 0, -20);
-    shapes.push(mainShape);
-    scene.add(mainShape);
+
+    const numBuildings = 50;
+    for (let i = 0; i < numBuildings; i++) {
+      const buildingHeight = Math.random() * 8 + 2;
+      const building = new THREE.Mesh(geometry, material);
+      
+      building.scale.set(Math.random() * 1.5 + 0.5, buildingHeight, Math.random() * 1.5 + 0.5);
+      
+      building.position.set(
+        (Math.random() - 0.5) * 40,
+        buildingHeight / 2 - 2,
+        (Math.random() - 0.5) * 40
+      );
+      
+      // Add a small glowing element on top of each building
+      const topLight = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.5, 0.5),
+        glowMaterial
+      );
+      topLight.position.set(
+        building.position.x,
+        building.position.y + buildingHeight / 2 + 0.5,
+        building.position.z
+      );
+      
+      scene.add(building);
+      scene.add(topLight);
+      buildings.push(building, topLight);
+    }
+    
+    // Set a subtle ambient light
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
 
     // Post-processing setup for the glowing effect
     const composer = new EffectComposer(renderer);
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
 
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.4, 0.85); // Reduced bloom intensity
     composer.addPass(bloomPass);
 
     const outputPass = new OutputPass();
     composer.addPass(outputPass);
 
     // Position the camera
-    camera.position.z = 10;
+    camera.position.set(0, 10, 20);
+    camera.lookAt(new THREE.Vector3(0, 0, 0));
 
     // Animation loop
     const clock = new THREE.Clock();
@@ -164,21 +163,13 @@ const Background3D = () => {
       if (!currentMount) return;
       requestAnimationFrame(animate);
       
-      const delta = clock.getDelta();
-
-      // Animate shapes
-      shapes.forEach(shape => {
-        shape.rotation.x += 0.5 * delta;
-        shape.rotation.y += 0.5 * delta;
-      });
-
-      // Animate particles
-      particleSystem.rotation.y += 0.01 * delta;
+      const time = clock.getElapsedTime();
       
-      // Move camera gently
-      camera.position.x = Math.sin(Date.now() * 0.0001) * 2;
-      camera.position.y = Math.cos(Date.now() * 0.0001) * 2;
-
+      // Animate the camera to slowly pan across the city
+      camera.position.x = Math.sin(time * 0.03) * 15;
+      camera.position.z = 20 - (Math.cos(time * 0.03) * 5); // Subtle forward/backward motion
+      camera.lookAt(new THREE.Vector3(0, -2, 0));
+      
       composer.render();
     };
 
@@ -199,10 +190,9 @@ const Background3D = () => {
         currentMount.removeChild(renderer.domElement);
       }
       renderer.dispose();
-      particleGeometry.dispose();
-      particleMaterial.dispose();
-      mainGeometry.dispose();
-      mainMaterial.dispose();
+      geometry.dispose();
+      material.dispose();
+      glowMaterial.dispose();
     };
   }, []);
 
@@ -255,6 +245,27 @@ export default function App() {
       setUserEmail(storedUser);
     }
   }, []);
+  
+  // New useEffect hook to fetch data from the backend
+  useEffect(() => {
+    const fetchComplaints = async () => {
+      try {
+        // We use the full URL to the backend server
+        const response = await fetch('http://localhost:5000/api/complaints');
+        const data = await response.json();
+        // Update the complaints state with data from the backend
+        setComplaints(data);
+      } catch (error) {
+        console.error("Failed to fetch complaints from the backend:", error);
+        // Fallback to a message if the backend is not running
+        showMessage("Failed to load complaints from the server. Is the backend running?");
+      }
+    };
+    // Fetch data only if the user is authenticated
+    if (isAuthenticated) {
+      fetchComplaints();
+    }
+  }, [isAuthenticated]); // Rerun the effect when authentication status changes
 
   // Submit complaint
   const handleSubmit = (e) => {
@@ -410,10 +421,13 @@ export default function App() {
       {isAuthenticated ? (
         <>
           <div className="flex justify-between items-center mb-6 relative z-10">
-            <h1 className="text-4xl font-bold">🚨 CivicPulse</h1>
+            <div className="flex items-center gap-4">
+              <h1 className="text-4xl font-bold">🚨 CivicPulse</h1>
+              <p className="hidden md:block text-sm text-gray-300">Logged in as: {userEmail}</p>
+            </div>
             <button
               onClick={handleLogout}
-              className="bg-red-600 hover:bg-red-700 p-3 rounded-xl font-bold"
+              className="bg-red-600 hover:bg-red-700 p-3 rounded-xl font-bold transition-transform transform hover:scale-105"
             >
               Logout
             </button>
@@ -602,7 +616,7 @@ export default function App() {
                   ? setSignupEmail(e.target.value)
                   : setLoginEmail(e.target.value)
               }
-              className="p-3 rounded-lg bg-white/10 text-white placeholder-gray-300 border border-gray-700 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500"
+              className="p-3 rounded-lg bg-white/10 text-white placeholder-gray-300 border border-gray-700 focus:border-indigo-400 focus:ring-2 focus:ring-ring-indigo-500"
               required
             />
             <input
@@ -648,5 +662,3 @@ export default function App() {
     </div>
   );
 }
-
-
